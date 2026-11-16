@@ -1,0 +1,5 @@
+# Your login session and exported course material - keep these private, never commit them
+.browser-profile/
+lola_export/
+*_export/
+__pycache__/
