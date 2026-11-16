@@ -284,9 +284,17 @@ class Exporter:
 
     def moodle_courses(self, page) -> list[dict]:
         """Ask Moodle for the courses you are enrolled in (same call the 'My courses' page makes)."""
-        root = page.evaluate("() => M.cfg.wwwroot")
+        pu = urlparse(page.url if page.url.startswith("http") else self.start)
+        root = f"{pu.scheme}://{pu.netloc}"
+        if self.is_moodle(page):
+            root = page.evaluate("() => M.cfg.wwwroot")
         if "/my" not in page.url:
-            page.goto(root + "/my/courses.php", wait_until="domcontentloaded")
+            try:
+                page.goto(root + "/my/courses.php", wait_until="domcontentloaded")
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except PlaywrightError:
+                pass
+        self.moodle_root = root
         try:
             courses = page.evaluate(r"""async () => {
                 const call = async (cls) => {
@@ -324,15 +332,29 @@ class Exporter:
                         found[cid] = {"id": cid, "name": text.splitlines()[-1].strip() or text, "url": href}
         return list(found.values())
 
-    def choose_courses(self, courses: list[dict]) -> list[dict]:
+    def choose_courses(self, courses: list[dict], root: str) -> list[dict]:
         a = self.args
-        if a.course:
-            rx = [re.compile(p, re.I) for p in a.course]
-            courses = [c for c in courses if any(r.search(c["name"]) for r in rx)]
+        wishlist = a.course or ([] if a.all_courses else load_course_wishlist(Path(a.courses_file)))
+        if wishlist:
+            log(f"\nYou asked for {len(wishlist)} course(s) (from {'--course' if a.course else a.courses_file}).")
+            chosen: list[dict] = []
+            for entry in wishlist:
+                hits = [c for c in courses if course_matches(entry, c)]
+                m = re.search(r"course/view\.php\?(?:.*&)?id=(\d+)", entry)
+                if not hits and m:  # not in the enrolled list, but we know exactly where it is
+                    hits = [{"id": int(m.group(1)), "name": f"course {m.group(1)}",
+                             "url": f"{root}/course/view.php?id={m.group(1)}"}]
+                if hits:
+                    for h in hits:
+                        log(f"   OK  {entry[:55]:55s} -> {h['name']}")
+                else:
+                    log(f"   ??  {entry[:55]:55s} -> NOT FOUND in your courses (check the spelling in {a.courses_file})")
+                chosen += [h for h in hits if h["id"] not in {c["id"] for c in chosen}]
+            return chosen
         log(f"\nFound {len(courses)} course(s):")
         for i, c in enumerate(courses, 1):
             log(f"  {i:2d}. {c['name']}")
-        if a.no_wait or a.course or not courses:
+        if a.no_wait or not courses:
             return courses
         ans = input("\nPress ENTER to export ALL of them, or type the numbers you want (e.g. 1,3,5): ").strip()
         if not ans:
@@ -436,7 +458,8 @@ class Exporter:
                 input()
             self.allowed_hosts.add(urlparse(page.url).netloc.lower())
 
-            self.moodle = not a.generic and self.is_moodle(page)
+            is_lola = "lola.hec.uliege.be" in urlparse(self.start).netloc
+            self.moodle = not a.generic and (self.is_moodle(page) or is_lola)
             if self.moodle and "/login/" in page.url:
                 log("It looks like you're not logged in yet (still on the login page). Run again and log in first.")
                 self.close_browser(ctx)
@@ -447,7 +470,7 @@ class Exporter:
                 self.course_ids = set(self.saved_course_ids)
             elif self.moodle:
                 log("Detected a Moodle site (like Lola) - exporting course by course.")
-                courses = self.choose_courses(self.moodle_courses(page))
+                courses = self.choose_courses(self.moodle_courses(page), getattr(self, "moodle_root", ""))
                 if not courses:
                     log("No courses found. Make sure you're logged in, or try --generic.")
                     self.close_browser(ctx)
@@ -572,6 +595,17 @@ class Exporter:
             node = chain[-2] if len(chain) >= 2 else chain[-1]
             return node["title"] or node["url"]
 
+        # Courses added by link only have a placeholder name ("course 54"): use their page title.
+        nicer: dict[str, str] = {}
+        for r in self.records:
+            c = r.get("course", "")
+            if re.fullmatch(r"course \d+", c) and c not in nicer and r["type"] == "page":
+                t = re.sub(r"^(Course|Cours)\s*:\s*", "", r["title"]).strip() or c
+                nicer[c] = t if t not in nicer.values() else f"{t} ({c})"
+        for r in self.records:
+            if r.get("course") in nicer:
+                r["course"] = nicer[r["course"]]
+
         groups: dict[str, list[dict]] = {}
         for r in self.records:
             groups.setdefault(course_of(r), []).append(r)
@@ -625,6 +659,33 @@ class Exporter:
         log("=" * 70)
 
 
+def norm_text(text: str) -> str:
+    import unicodedata
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
+
+
+def load_course_wishlist(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    return [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.strip().startswith("#")]
+
+
+def course_matches(entry: str, course: dict) -> bool:
+    """entry = a course link, a bare id, or a name (with | for alternatives)."""
+    m = re.search(r"course/view\.php\?(?:.*&)?id=(\d+)", entry)
+    if m:
+        return int(m.group(1)) == course["id"]
+    name = norm_text(course["name"])
+    compact = name.replace(" ", "")
+    for alt in entry.split("|"):
+        words = norm_text(alt).split()
+        if words and ("".join(words) in compact or all(w in name.split() for w in words)):
+            return True
+    return False
+
+
 def free_port() -> int:
     with socket.socket() as sck:
         sck.bind(("127.0.0.1", 0))
@@ -661,6 +722,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Export course content from your university portal for studying with Claude.")
     ap.add_argument("--start", default=LOLA_URL, help=f"site / page to start from (default: {LOLA_URL})")
     ap.add_argument("--course", action="append", default=[], help="only export courses whose name matches this (repeatable), e.g. --course Finance")
+    ap.add_argument("--courses-file", default=str(Path(__file__).with_name("my_courses.txt")),
+                    help="file listing the courses you want (default: my_courses.txt next to this script)")
+    ap.add_argument("--all-courses", action="store_true", help="ignore my_courses.txt and offer every course")
     ap.add_argument("--no-forums", dest="forums", action="store_false", help="skip forums / announcements")
     ap.add_argument("--generic", action="store_true", help="don't use Moodle mode; just follow links like a normal website")
     ap.add_argument("--out", default="lola_export", help="output folder (default: lola_export)")

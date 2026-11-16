@@ -13,7 +13,14 @@ lessons, grades, participant lists, edit mode or the logout link.
 You need [Python 3.9+](https://www.python.org/downloads/). On Windows, tick **"Add Python to PATH"** in the installer.
 Then download this repo (green **Code** button → *Download ZIP*) and unzip it.
 
-## 2. Run it
+## 2. Choose your courses (optional)
+
+Open **`my_courses.txt`** in Notepad. It lists the courses to export, one per line, either as a Lola
+course link or as a name. Only those courses are exported. Names ignore accents and capitals, and `|`
+means "or" (e.g. `english | anglais`). Delete all the lines, or run with `--all-courses`, to choose
+from every course instead.
+
+## 3. Run it
 
 - **Windows:** double-click `run_windows.bat`
 - **Windows with Opera GX:** double-click `run_windows_operagx.bat` (uses your Opera GX, so there's no extra browser to download)
@@ -23,11 +30,11 @@ Then download this repo (green **Code** button → *Download ZIP*) and unzip it.
 
 1. A browser window opens on Lola. **Log in** and wait until you see your dashboard.
 2. Go back to the terminal window and press **Enter**.
-3. It lists your courses. Press **Enter** to export all of them, or type numbers like `1,3,5`.
+3. It shows which courses from `my_courses.txt` it found (`OK`) and any it couldn't find (`??`), then starts.
 4. Wait while it works. Each page and file is printed as it is saved. Press `Ctrl+C` to pause at any
    time; run it again to continue from where it stopped.
 
-## 3. Study with Claude
+## 4. Study with Claude
 
 The results are in the `lola_export/` folder:
 

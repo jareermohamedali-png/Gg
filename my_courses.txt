@@ -1,0 +1,13 @@
+# Courses to export from Lola - one per line.
+# You can write a course link (most precise) or a name. Matching ignores accents,
+# capitals and dashes, so "microeconomie" also matches "Micro-économie".
+# Use | for alternatives: "english | anglais" matches either.
+# Lines starting with # are ignored. Delete everything (or run with --all-courses) to get all courses.
+
+microeconomie | microeconomics
+espagnol | spanish
+english | anglais
+https://lola.hec.uliege.be/course/view.php?id=54
+https://lola.hec.uliege.be/course/view.php?id=72
+https://lola.hec.uliege.be/course/view.php?id=269
+Mathématiques pour les sciences économiques et de gestion (Partie 1A)
