@@ -16,6 +16,7 @@ Then download this repo (green **Code** button → *Download ZIP*) and unzip it.
 ## 2. Run it
 
 - **Windows:** double-click `run_windows.bat`
+- **Windows with Opera GX:** double-click `run_windows_operagx.bat` (uses your Opera GX, so there's no extra browser to download)
 - **Mac:** open Terminal in the folder and run `bash run_mac_linux.sh`
 
 (Or by hand: `pip install -r requirements.txt`, `playwright install chromium`, `python lola_export.py`.)
@@ -54,6 +55,8 @@ Every chat in the project then knows your course. Try:
 | `python lola_export.py --depth 4` | Look deeper inside courses (default 3) |
 | `python lola_export.py --fresh` | Forget earlier progress and start over |
 | `python lola_export.py --bundle-only` | Rebuild the upload files without downloading again |
+| `python lola_export.py --opera` | Use your installed Opera GX |
+| `python lola_export.py --cdp-browser "C:\path\to\browser.exe"` | Use any other Chrome-like browser (Brave, Edge, Opera, Vivaldi...) |
 | `python lola_export.py --channel chrome` | Use your installed Google Chrome instead of downloading Chromium |
 | `python lola_export.py --start https://other-moodle/my/` | Use another Moodle site |
 
@@ -67,5 +70,8 @@ Run `python lola_export.py --help` to see all options.
   it yourself. Activities that are set to "complete when viewed" may get ticked off.
 - **Not exported:** videos (Claude can't watch them), quizzes, and external links such as YouTube.
 - **Scanned PDFs** (photos of pages) have no text to extract. Upload those from `files/` directly; Claude can read them.
+- **Opera GX:** the tool opens a *separate* Opera GX window with its own clean profile, so your normal
+  tabs, passwords and extensions aren't touched. You log in to Lola once in that window. If it says it
+  can't connect, fully quit Opera GX (including from the system tray) and try again.
 - Your login is kept in `.browser-profile/` so next time you may not need to log in. Delete that folder to sign out.
 - This is for your **own study**. Course material belongs to HEC Liège and your lecturers, so don't share it.

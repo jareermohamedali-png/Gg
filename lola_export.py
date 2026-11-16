@@ -27,9 +27,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import platform
 import re
+import socket
+import subprocess
 import sys
 import time
+import urllib.request
 from collections import deque
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse, unquote, parse_qsl, urlencode
@@ -357,18 +362,68 @@ class Exporter:
             return None
         return url
 
+    # ---------- browser ----------
+    def open_browser(self, pw):
+        a = self.args
+        self.browser_proc = None
+        exe = a.browser_path
+        if a.opera:
+            exe = find_opera_gx()
+            if not exe:
+                sys.exit("Couldn't find Opera GX. Tell me where opera.exe is with:\n"
+                         '  python lola_export.py --cdp-browser "C:\\path\\to\\Opera GX\\opera.exe"')
+        exe = a.cdp_browser or (exe if a.opera else "")
+        if exe:
+            # Start the real browser ourselves with remote control switched on, then attach to it.
+            # It gets its own separate profile folder, so your normal Opera tabs/profile are untouched.
+            port = free_port()
+            profile = Path(a.profile).resolve().with_name(Path(a.profile).name + "-" + Path(exe).stem.lower())
+            profile.mkdir(parents=True, exist_ok=True)
+            log(f"Starting {exe} ...")
+            self.browser_proc = subprocess.Popen(
+                [exe, f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
+                 "--no-first-run", "--no-default-browser-check", "about:blank"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            endpoint = f"http://127.0.0.1:{port}"
+            for _ in range(60):
+                try:
+                    urllib.request.urlopen(endpoint + "/json/version", timeout=1).read()
+                    break
+                except OSError:
+                    time.sleep(0.5)
+            else:
+                self.browser_proc.terminate()
+                sys.exit("The browser started but didn't allow the tool to connect.\n"
+                         "Close ALL Opera GX windows (also check the system tray), then try again.")
+            browser = pw.chromium.connect_over_cdp(endpoint)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            ctx._lola_browser = browser
+            return ctx
+        return pw.chromium.launch_persistent_context(
+            user_data_dir=str(Path(a.profile).resolve()),
+            headless=a.headless,
+            accept_downloads=False,
+            executable_path=a.browser_path or None,
+            channel=a.channel or None,
+            viewport={"width": 1280, "height": 900},
+        )
+
+    def close_browser(self, ctx) -> None:
+        try:
+            if getattr(ctx, "_lola_browser", None):
+                ctx._lola_browser.close()
+            else:
+                ctx.close()
+        except PlaywrightError:
+            pass
+        if getattr(self, "browser_proc", None):
+            self.browser_proc.terminate()
+
     # ---------- crawl ----------
     def crawl(self) -> None:
         a = self.args
         with sync_playwright() as pw:
-            ctx = pw.chromium.launch_persistent_context(
-                user_data_dir=str(Path(a.profile).resolve()),
-                headless=a.headless,
-                accept_downloads=False,
-                executable_path=a.browser_path or None,
-                channel=a.channel or None,
-                viewport={"width": 1280, "height": 900},
-            )
+            ctx = self.open_browser(pw)
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(self.start)
             if not a.headless and not a.no_wait:
@@ -384,7 +439,7 @@ class Exporter:
             self.moodle = not a.generic and self.is_moodle(page)
             if self.moodle and "/login/" in page.url:
                 log("It looks like you're not logged in yet (still on the login page). Run again and log in first.")
-                ctx.close()
+                self.close_browser(ctx)
                 return
 
             if self.pending:
@@ -395,7 +450,7 @@ class Exporter:
                 courses = self.choose_courses(self.moodle_courses(page))
                 if not courses:
                     log("No courses found. Make sure you're logged in, or try --generic.")
-                    ctx.close()
+                    self.close_browser(ctx)
                     return
                 self.course_ids = {c["id"] for c in courses}
                 queue = self.queue = deque((c["url"], 0, "", c["name"]) for c in courses)
@@ -443,7 +498,7 @@ class Exporter:
                 log("\nStopped by you - saving what we have so far (run again to continue)...")
             finally:
                 self._save_state()
-                ctx.close()
+                self.close_browser(ctx)
 
     def process(self, ctx, page, url: str, parent: str, course: str = "") -> list[str]:
         """Fetch one URL. Saves files directly; renders HTML pages in the browser."""
@@ -570,6 +625,34 @@ class Exporter:
         log("=" * 70)
 
 
+def free_port() -> int:
+    with socket.socket() as sck:
+        sck.bind(("127.0.0.1", 0))
+        return sck.getsockname()[1]
+
+
+def find_opera_gx() -> str:
+    """Find the Opera GX executable in its usual install locations."""
+    cands: list[Path] = []
+    if platform.system() == "Windows":
+        for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            if base:
+                d = Path(base) / "Programs" / "Opera GX" if "Local" in base else Path(base) / "Opera GX"
+                # Prefer the real browser inside the newest version folder over the launcher.
+                versions = sorted(d.glob("*/opera.exe"),
+                                  key=lambda x: [int(n) for n in re.findall(r"\d+", x.parent.name)] or [0])
+                cands += list(reversed(versions)) + [d / "opera.exe"]
+    elif platform.system() == "Darwin":
+        cands += [Path("/Applications/Opera GX.app/Contents/MacOS/Opera"),
+                  Path.home() / "Applications/Opera GX.app/Contents/MacOS/Opera"]
+    else:
+        cands += [Path("/usr/bin/opera-gx"), Path("/usr/bin/opera")]
+    for c in cands:
+        if c.is_file():
+            return str(c)
+    return ""
+
+
 def a_timeout(args) -> int:
     return int(args.timeout * 1000)
 
@@ -593,6 +676,8 @@ def main() -> None:
     ap.add_argument("--split-chars", type=int, default=1_500_000, help="max characters per upload file before it is split (default 1.5M)")
     ap.add_argument("--no-expand", dest="expand", action="store_false", help="don't auto-open collapsed sections")
     ap.add_argument("--profile", default=".browser-profile", help="folder that keeps your login between runs")
+    ap.add_argument("--opera", action="store_true", help="use your installed Opera GX browser")
+    ap.add_argument("--cdp-browser", default="", help="path to any Chromium-based browser (Opera, Brave, Edge...) to use")
     ap.add_argument("--channel", default="", help="use an installed browser instead of Playwright's: chrome or msedge")
     ap.add_argument("--browser-path", default="", help="path to a Chrome/Chromium executable to use")
     ap.add_argument("--headless", action="store_true", help="no browser window (only works if already logged in via --profile)")
