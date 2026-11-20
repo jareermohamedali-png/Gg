@@ -111,4 +111,15 @@ def load(symbol: str, interval: str = "1d", source: str = "auto") -> pd.DataFram
                     base = base[: -len(q)]
                     break
             return fetch_yahoo(f"{base}-USD", interval)
-    return fetch_yahoo(symbol, interval)
+    from .forex import parse
+    fx = parse(symbol) if source in ("auto", "yahoo") else None
+    return fetch_yahoo(fx["yahoo"] if fx else symbol, interval)
+
+
+def fx_rate(base: str, quote: str) -> float:
+    """Latest Yahoo close for base/quote (used to convert pip values into the account currency)."""
+    r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{base}{quote}=X",
+                     params={"interval": "1d", "range": "5d"}, headers=UA, timeout=20)
+    r.raise_for_status()
+    closes = [c for c in r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"] if c]
+    return float(closes[-1])

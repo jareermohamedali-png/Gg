@@ -3,7 +3,7 @@ import json
 
 from .setups import fmt
 
-W = 92
+W = 98
 USE_COLOR = True
 
 
@@ -21,7 +21,8 @@ def market_overview(ctx) -> str:
     out = ["", c("═" * W, "1"),
            c(f" {ctx['symbol']}  ·  {ctx['interval']}  ·  last candle {ctx['time']:%Y-%m-%d %H:%M} UTC  ·  {ctx['bars']} bars", "1"),
            c("═" * W, "1"),
-           f" Price      {fmt(px)}  ({ctx['change_pct']:+.2f}% last bar)    ATR(14) {fmt(a)} ({100 * a / px:.2f}%)",
+           f" Price      {fmt(px)}  ({ctx['change_pct']:+.2f}% last bar)    ATR(14) {fmt(a)} ({100 * a / px:.2f}%"
+           + (f", {a / ctx['fx']['pip']:.0f} pips)" if ctx.get("fx") else ")"),
            f" Trend      {c(ctx['trend_label'], '1')}"]
     seq = st["sequence"] or "not enough swings"
     out.append(f" Structure  {st['trend']}  ·  recent swings: {seq}")
@@ -67,17 +68,28 @@ def bb_pct(px, i):
     return 100 * (px - i["bb_low"]) / w if w else 50
 
 
-def setup_block(s, rank, account=None, risk_pct=None) -> str:
+def _pips(fx, dist):
+    return f"{abs(dist) / fx['pip']:,.1f} pips" if fx else ""
+
+
+def setup_block(s, rank, account=None, risk_pct=None, fx=None, q2acc=None, ccy="USD") -> str:
     col = "32" if s.side == "BUY" else "31"
     out = ["", c(f" #{rank}  {s.side} {s.symbol} - {s.strategy}", "1;" + col)
            + f"   score {s.score}/100 {bar(s.score)}  grade {c(s.grade, '1')} · {s.verdict}",
            f"     Trigger : {s.trigger}",
            f"     Entry   : {c(fmt(s.entry), '1')}  ({s.entry_type})",
-           f"     Stop    : {c(fmt(s.stop), '1')}  risk {fmt(s.risk)} ({s.risk_pct:.2f}%)  ← {s.stop_basis}"]
+           f"     Stop    : {c(fmt(s.stop), '1')}  risk "
+           + (f"{_pips(fx, s.risk)}" if fx else f"{fmt(s.risk)} ({s.risk_pct:.2f}%)") + f"  ← {s.stop_basis}"]
     for k, t in enumerate(s.targets, 1):
-        pct = 100 * abs(t.price - s.entry) / s.entry
-        out.append(f"     TP{k}     : {c(fmt(t.price), '1')}  R:R 1:{t.rr:.2f}  (+{pct:.2f}%)  ← {t.basis}")
-    if account and risk_pct:
+        dist = _pips(fx, t.price - s.entry) if fx else f"{100 * abs(t.price - s.entry) / s.entry:.2f}%"
+        out.append(f"     TP{k}     : {c(fmt(t.price), '1')}  R:R 1:{t.rr:.2f}  (+{dist})  ← {t.basis}")
+    if account and risk_pct and fx and q2acc:
+        from .forex import lot_size
+        lots, pip_val = lot_size(fx, s.entry, s.stop, account * risk_pct / 100, q2acc)
+        out.append(f"     Size    : {lots:.2f} lots (pip value ≈ {pip_val:,.2f} {ccy}/lot) to risk {risk_pct}% "
+                   f"= {account * risk_pct / 100:,.2f} {ccy}"
+                   + ("" if fx["metal"] else f"  ·  = {lots * 10:.1f} mini / {lots * 100:.0f} micro lots"))
+    elif account and risk_pct:
         units = account * risk_pct / 100 / s.risk
         out.append(f"     Size    : {units:,.4g} units ≈ {fmt(units * s.entry)} notional to risk "
                    f"{risk_pct}% ({fmt(account * risk_pct / 100)}) of {fmt(account)}")
@@ -92,11 +104,12 @@ def setup_block(s, rank, account=None, risk_pct=None) -> str:
 
 
 def ranking_table(setups) -> str:
-    hdr = f" {'#':>2}  {'Symbol':<12}{'Side':<5}{'Strategy':<16}{'Score':>6} {'Gr':>3} {'Entry':>13} {'Stop':>13} {'TP1 R':>6} {'TP2 R':>6} {'TP3 R':>6}"
+    hdr = f" {'#':>2}  {'Symbol':<12}{'Side':<5}{'Strategy':<16}{'Score':>6} {'Gr':>3} {'Entry':>12} {'Stop':>12} {'Risk':>10} {'TP1 R':>6} {'TP2 R':>6} {'TP3 R':>6}"
     out = ["", c("═" * W, "1"), c(" RANKED OPPORTUNITIES (by technical strength)", "1"), c("═" * W, "1"), hdr, " " + "─" * (W - 2)]
     for k, s in enumerate(setups, 1):
         out.append(f" {k:>2}  {s.symbol[:11]:<12}{c(f'{s.side:<5}', '32' if s.side == 'BUY' else '31')}"
-                   f"{s.strategy:<16}{s.score:>6} {s.grade:>3} {fmt(s.entry):>13} {fmt(s.stop):>13} "
+                   f"{s.strategy:<16}{s.score:>6} {s.grade:>3} {fmt(s.entry, s.dp):>12} {fmt(s.stop, s.dp):>12} "
+                   f"{getattr(s, 'risk_label', f'{s.risk_pct:.2f}%'):>10} "
                    + " ".join(f"{t.rr:>6.2f}" for t in s.targets))
     return "\n".join(out)
 

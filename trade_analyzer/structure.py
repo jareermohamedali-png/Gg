@@ -77,12 +77,13 @@ def break_of_structure(df: pd.DataFrame, swings: list, prior_trend: str, lookbac
     return None
 
 
-def support_resistance(df: pd.DataFrame, swings: list, atr_now: float, recent: int = 6) -> list:
+def support_resistance(df: pd.DataFrame, swings: list, atr_now: float, recent: int = 6, lookback: int = 500) -> list:
     """Cluster swing prices that sit within ~0.6 ATR of each other into levels; more touches + recency = stronger.
     Keeps every level touched at least twice, plus the most recent single-touch swings (fresh highs/lows)."""
     tol = 0.6 * atr_now
     levels = []
-    for s in sorted(swings, key=lambda s: s.price):
+    start = len(df) - lookback          # only the last `lookback` bars matter for current levels
+    for s in sorted((s for s in swings if s.i >= start), key=lambda s: s.price):
         if levels and abs(s.price - levels[-1].price) <= tol:
             L = levels[-1]
             L.price = (L.price * L.touches + s.price) / (L.touches + 1)

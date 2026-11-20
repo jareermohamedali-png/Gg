@@ -30,6 +30,7 @@ class Setup:
     score: int = 0
     reasons: list = field(default_factory=list)   # (points, text)
     warnings: list = field(default_factory=list)
+    dp: object = None          # price decimals for display
 
     @property
     def side(self): return NAME[self.direction]
@@ -60,10 +61,15 @@ class Setup:
         return pos, neg
 
 
-def fmt(x: float) -> str:
-    a = abs(x)
-    d = 2 if a >= 100 else 3 if a >= 10 else 4 if a >= 1 else 6
-    return f"{x:,.{d}f}"
+PRICE_DP = None   # set per instrument (e.g. 5 for EURUSD); None = automatic
+
+
+def fmt(x: float, dp=None) -> str:
+    dp = dp if dp is not None else PRICE_DP
+    if dp is None:
+        a = abs(x)
+        dp = 2 if a >= 100 else 3 if a >= 10 else 4 if a >= 1 else 6
+    return f"{x:,.{dp}f}"
 
 
 # ----------------------------------------------------------------------------------------------- building blocks
@@ -113,7 +119,7 @@ def _targets(ctx, d, entry, stop):
 
 def _make(ctx, d, strategy, trigger, entry, entry_type, fixed_stop=None):
     stop, basis = fixed_stop or _stop_from_structure(ctx, d, entry, _anchors(ctx, d))
-    s = Setup(ctx["symbol"], d, strategy, trigger, entry, entry_type, stop, basis)
+    s = Setup(ctx["symbol"], d, strategy, trigger, entry, entry_type, stop, basis, dp=PRICE_DP)
     s.targets, wall = _targets(ctx, d, entry, stop)
     _score(s, ctx, wall)
     return s

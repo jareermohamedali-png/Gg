@@ -22,7 +22,30 @@ Python 3.9+:
 pip install -r trade_analyzer/requirements.txt
 ```
 
-## Use
+## Forex
+
+Built for forex first. Type pairs the way you see them on your platform, or scan a whole watchlist:
+
+```bash
+python -m trade_analyzer forex                         # majors + minors + gold + silver (23 instruments)
+python -m trade_analyzer majors -i 4h                  # 7 majors on the 4-hour chart
+python -m trade_analyzer minors -i 1h --min-score 60   # crosses, only B grade or better
+python -m trade_analyzer EURUSD GBP/JPY XAUUSD -i 4h --account 5000 --risk 1
+python -m trade_analyzer EURUSD --account 4000 --ccy EUR   # account in euros
+```
+
+For forex pairs the report shows:
+- prices in broker precision (5 decimals, 3 for JPY pairs, 2 for gold)
+- ATR, stop distance and each TP in **pips**
+- with `--account`: **lot size** (standard / mini / micro) and pip value per lot in your account
+  currency (`--ccy`, default USD), so hitting the stop costs exactly `--risk` %
+
+Watchlists: `majors`, `minors`, `metals`, `forex` (all of them). Data comes from Yahoo Finance and
+has no real volume for spot FX, so volume is ignored for pairs. `XAUUSD`/`XAGUSD` use COMEX gold/silver
+futures as a stand-in for spot (prices differ slightly from your broker; gold "pips" are 0.10).
+Intervals: `15m` and `30m` (last 60 days), `1h` and `4h` (2 years), `1d`, `1wk`.
+
+## Use (other markets)
 
 Run from the folder that **contains** `trade_analyzer/`:
 
