@@ -121,8 +121,8 @@ def _make(ctx, d, strategy, trigger, entry, entry_type, fixed_stop=None):
 
 def _near(levels, px, a, d, max_dist=0.6, min_touches=2) -> Optional[Level]:
     """Nearest tested level on the 'protective' side: support for buys (d=1), resistance for sells."""
-    side = [L for L in levels if L.touches >= min_touches and -d * (L.price - px) >= -0.25 * a
-            and abs(L.price - px) <= max_dist * a]
+    want = "support" if d == BUY else "resistance"
+    side = [L for L in levels if L.touches >= min_touches and L.side == want and abs(L.price - px) <= max_dist * a]
     return min(side, key=lambda L: abs(L.price - px)) if side else None
 
 
@@ -272,7 +272,7 @@ def _score(s: Setup, ctx, wall):
     # 5. MACD
     hist, hp = ind["macd_hist"], ctx["macd_hist_prev"]
     if hist * d > 0 and (hist - hp) * d > 0:
-        add((6, "MACD histogram positive and expanding in trade direction"))
+        add((6, f"MACD histogram {'positive' if bull else 'negative'} and expanding in trade direction"))
     elif (hist - hp) * d > 0:
         add((3, "MACD histogram turning in trade direction"))
     elif hist * d < 0:

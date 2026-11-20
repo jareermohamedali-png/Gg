@@ -99,5 +99,16 @@ def load(symbol: str, interval: str = "1d", source: str = "auto") -> pd.DataFram
         seed = int("".join(ch for ch in symbol if ch.isdigit()) or 7)
         return synthetic(seed=seed)
     if source == "binance" or (source == "auto" and "-" not in symbol and symbol.upper().endswith(CRYPTO_QUOTES)):
-        return fetch_binance(symbol, interval)
+        try:
+            return fetch_binance(symbol, interval)
+        except requests.RequestException:
+            if source == "binance":
+                raise
+            # Binance unreachable or geo-blocked (HTTP 451): fall back to the same coin in USD on Yahoo
+            base = symbol.upper()
+            for q in CRYPTO_QUOTES:
+                if base.endswith(q):
+                    base = base[: -len(q)]
+                    break
+            return fetch_yahoo(f"{base}-USD", interval)
     return fetch_yahoo(symbol, interval)
