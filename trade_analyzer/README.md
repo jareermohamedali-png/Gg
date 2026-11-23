@@ -95,6 +95,23 @@ Other options: `--top N` setups shown per symbol, `--swing N` bars each side for
      Invalidation: A close below 179.57 (...) invalidates the idea.
 ```
 
+## Backtest (does it actually make money?)
+
+```bash
+python -m trade_analyzer.backtest forex -i 1d 4h --csv trades.csv
+python -m trade_analyzer.backtest majors -i 1d --min-score 60
+```
+
+Replays history bar by bar: at each bar the analyser only sees data up to that bar, then every setup is
+simulated forward. Market orders fill at the next bar's open, limit orders get 5 bars to fill, the stop
+wins if stop and target are touched in the same bar, a typical spread is charged, and a fill that already
+used up more than half the planned risk is skipped. Results are in R (multiples of the risk) for four
+exit styles: all at TP1, all at TP2, all at TP3, or 1/3 at each target with break-even after TP1.
+
+Each group (setup type, side, grade, pair, timeframe) shows trades, win %, average R, a ±2 standard
+error noise band, total R, profit factor and max drawdown, and a verdict: **EDGE** only when the
+average stays above zero even after subtracting the noise band.
+
 ## How the score works
 
 Each setup starts from a base (30–35) and gains or loses points for confluence:

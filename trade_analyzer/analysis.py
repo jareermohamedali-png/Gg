@@ -21,12 +21,17 @@ def ema_direction(px, e20, e50, e200) -> int:
 
 def analyze(df: pd.DataFrame, symbol: str, interval: str = "1d", swing_len: int = 3) -> dict:
     df = add_indicators(df)
+    return build_context(df, find_swings(df, swing_len, swing_len), symbol, interval)
+
+
+def build_context(df: pd.DataFrame, swings: list, symbol: str, interval: str = "1d") -> dict:
+    """df must already carry indicators; swings must only contain points confirmed by df's last bar.
+    Split out of analyze() so the backtester can reuse precomputed indicators/swings bar by bar."""
     last, prev = df.iloc[-1], df.iloc[-2]
     px, a = float(last["close"]), float(last["atr"])
     ind = {k: float(last[k]) for k in ("ema20", "ema50", "ema200", "rsi", "macd", "macd_signal", "macd_hist",
                                         "atr", "adx", "plus_di", "minus_di", "bb_up", "bb_mid", "bb_low",
                                         "stoch_k", "stoch_d")}
-    swings = find_swings(df, swing_len, swing_len)
     struct = structure_trend(swings)
     e_dir = ema_direction(px, ind["ema20"], ind["ema50"], ind["ema200"])
     prior = struct["trend"] if struct["trend"] in ("bullish", "bearish") else \

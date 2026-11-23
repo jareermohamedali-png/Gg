@@ -46,10 +46,10 @@ def load_csv(path: str) -> pd.DataFrame:
     return _finish(df)
 
 
-def fetch_yahoo(symbol: str, interval: str = "1d") -> pd.DataFrame:
+def fetch_yahoo(symbol: str, interval: str = "1d", history: str = None) -> pd.DataFrame:
     yi = "1h" if interval == "4h" else interval
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    r = requests.get(url, params={"interval": "60m" if yi == "1h" else yi, "range": YAHOO_RANGE.get(interval, "2y")},
+    r = requests.get(url, params={"interval": "60m" if yi == "1h" else yi, "range": history or YAHOO_RANGE.get(interval, "2y")},
                      headers=UA, timeout=20)
     r.raise_for_status()
     res = (r.json().get("chart") or {}).get("result")
@@ -92,7 +92,7 @@ def synthetic(n: int = 500, seed: int = 7, start: float = 100.0) -> pd.DataFrame
     return _finish(pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": vol}, index=idx))
 
 
-def load(symbol: str, interval: str = "1d", source: str = "auto") -> pd.DataFrame:
+def load(symbol: str, interval: str = "1d", source: str = "auto", history: str = None) -> pd.DataFrame:
     if source == "csv" or symbol.lower().endswith(".csv"):
         return load_csv(symbol)
     if source == "demo" or symbol.lower().startswith("demo"):
@@ -113,7 +113,7 @@ def load(symbol: str, interval: str = "1d", source: str = "auto") -> pd.DataFram
             return fetch_yahoo(f"{base}-USD", interval)
     from .forex import parse
     fx = parse(symbol) if source in ("auto", "yahoo") else None
-    return fetch_yahoo(fx["yahoo"] if fx else symbol, interval)
+    return fetch_yahoo(fx["yahoo"] if fx else symbol, interval, history)
 
 
 def fx_rate(base: str, quote: str) -> float:
