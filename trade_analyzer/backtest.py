@@ -12,6 +12,8 @@ One position at a time per (symbol, strategy), so the same signal is not counted
 Results are in R (multiples of the initial risk). Exit styles compared:
   TP1 / TP2 / TP3  - whole position exits at that target
   SCALED           - 1/3 at each target, stop moved to break-even after TP1
+  1R / 2R          - fixed target at 1x / 2x the risk
+  1R+BE            - 1R target, stop moved to break-even once price is +0.5R
 
 Usage:
   python -m trade_analyzer.backtest forex -i 1d
@@ -31,7 +33,7 @@ from .forex import expand, parse
 from .indicators import add_indicators
 from .structure import find_swings
 
-MODES = ("TP1", "TP2", "TP3", "SCALED")
+MODES = ("TP1", "TP2", "TP3", "SCALED", "1R", "1R+BE", "2R")
 DEFAULT_HISTORY = {"1d": "10y", "1wk": "max", "4h": "730d", "1h": "730d"}
 
 
@@ -69,6 +71,17 @@ def _run(s, entry, k0, o, h, l, c, max_hold, mode):
     tps = [t.price for t in s.targets]
     stop = s.stop
     end = min(k0 + max_hold, len(c) - 1)
+    if mode in ("1R", "1R+BE", "2R"):
+        mult = 2.0 if mode == "2R" else 1.0
+        tp, be_at = entry + d * mult * R, entry + d * 0.5 * R
+        for k in range(k0, end + 1):
+            if (d == 1 and l[k] <= stop) or (d == -1 and h[k] >= stop):
+                return d * (stop - entry) / R, k
+            if (d == 1 and h[k] >= tp) or (d == -1 and l[k] <= tp):
+                return mult, k
+            if mode == "1R+BE" and ((d == 1 and h[k] >= be_at) or (d == -1 and l[k] <= be_at)):
+                stop = entry
+        return d * (c[end] - entry) / R, end
     if mode != "SCALED":
         tp = tps[int(mode[-1]) - 1]
         for k in range(k0, end + 1):
