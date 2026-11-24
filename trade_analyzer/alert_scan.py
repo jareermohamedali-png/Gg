@@ -43,6 +43,7 @@ def main(argv=None):
     p.add_argument("--max-dist", type=float, default=0.5, help="max distance of a limit entry, in ATR")
     p.add_argument("--state", default=os.path.expanduser("~/.trade_monitor/scan.json"))
     p.add_argument("--cooldown", type=float, default=24)
+    p.add_argument("--skip", nargs="*", default=[], help="PAIR:SIDE already being traded, e.g. EURCAD:SELL")
     a = p.parse_args(argv)
     report.USE_COLOR = False
     os.makedirs(os.path.dirname(a.state), exist_ok=True)
@@ -68,6 +69,8 @@ def main(argv=None):
                 if s.score < a.min_score:
                     continue
                 if s.entry_type != "market" and abs(s.entry - ctx["px"]) > a.max_dist * ctx["atr"]:
+                    continue
+                if f"{ctx['symbol']}:{s.side}" in {x.upper() for x in a.skip}:
                     continue
                 key = f"{ctx['symbol']}|{iv}|{s.side}|{s.strategy}"
                 if key in seen:
