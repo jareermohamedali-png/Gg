@@ -40,6 +40,8 @@ def main(argv=None):
     p.add_argument("--filled", required=True, help="fill time, UTC")
     p.add_argument("--warn", type=float, help="warn if a 4h candle closes beyond this level")
     p.add_argument("--window", type=int, default=65, help="report events from the last N minutes")
+    p.add_argument("--pending", action="store_true", help="limit order not filled yet: wait for price to reach --entry")
+    p.add_argument("--expire", help="pending order: alert to cancel if not filled by this UTC time")
     p.add_argument("--state", help="file remembering alerts already sent (enables frequent polling without repeats)")
     a = p.parse_args(argv)
     d = 1 if a.side.upper() == "BUY" else -1
@@ -55,6 +57,19 @@ def main(argv=None):
     px = live_price(fx["pair"] if fx else a.pair) or float(df["close"].iloc[-1])
 
     events, stop, tp_hit, done = [], a.stop, 0, False
+    if a.pending:
+        hit = bars[(bars["high"] >= a.entry) if d == -1 else (bars["low"] <= a.entry)]
+        if hit.empty:
+            if a.expire and now >= pd.Timestamp(a.expire, tz="UTC"):
+                events.append((now, f"{a.pair} limit {a.entry} NOT FILLED by {a.expire} UTC: cancel the order "
+                                    f"(price now {px}). Don't chase it."))
+                done = True
+            bars = bars.iloc[0:0]
+        else:
+            t0 = hit.index[0]
+            events.append((t0, f"{a.pair} limit FILLED at {a.entry}: trade is live. Stop {a.stop}, "
+                               f"TP1 {a.tp[0]}, TP2 {a.tp[1]}, TP3 {a.tp[2]}. Check SL/TP are set at your broker."))
+            bars = bars[bars.index >= t0]
     for t, b in bars.iterrows():
         hi, lo = b["high"], b["low"]
         if (d == -1 and hi >= stop) or (d == 1 and lo <= stop):
@@ -95,7 +110,11 @@ def main(argv=None):
                 f.write(m.split(":")[0] + "\n")
     else:
         new = [m for t, m in events if t + pd.Timedelta(hours=1) >= recent]
-    status = (f"{a.pair} {a.side.upper()} @ {a.entry}  price {px}  ({pips(px)})  stop {stop}  "
+    if a.pending and not len(bars) and not done:
+        status_pending = f"{a.pair} {a.side.upper()} LIMIT {a.entry} pending, price {px}"
+    else:
+        status_pending = None
+    status = status_pending or (f"{a.pair} {a.side.upper()} @ {a.entry}  price {px}  ({pips(px)})  stop {stop}  "
               f"TPs hit {tp_hit}/3  {'CLOSED' if done else 'open'}")
     if new:
         print(" | ".join(new))
