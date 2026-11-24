@@ -40,6 +40,7 @@ def main(argv=None):
     p.add_argument("--filled", required=True, help="fill time, UTC")
     p.add_argument("--warn", type=float, help="warn if a 4h candle closes beyond this level")
     p.add_argument("--window", type=int, default=65, help="report events from the last N minutes")
+    p.add_argument("--state", help="file remembering alerts already sent (enables frequent polling without repeats)")
     a = p.parse_args(argv)
     d = 1 if a.side.upper() == "BUY" else -1
     fx = parse(a.pair)
@@ -85,7 +86,15 @@ def main(argv=None):
                                f"{a.pair} WARNING: 4h candle closed at {b['close']:.3f}, beyond {a.warn} against you "
                                f"({pips(b['close'])}). Consider closing; stop is {stop}."))
 
-    new = [m for t, m in events if t + pd.Timedelta(hours=1) >= recent]
+    if a.state:
+        import os
+        seen = set(open(a.state).read().splitlines()) if os.path.exists(a.state) else set()
+        new = [m for t, m in events if m.split(":")[0] not in seen and t + pd.Timedelta(hours=24) >= now]
+        with open(a.state, "a") as f:
+            for m in new:
+                f.write(m.split(":")[0] + "\n")
+    else:
+        new = [m for t, m in events if t + pd.Timedelta(hours=1) >= recent]
     status = (f"{a.pair} {a.side.upper()} @ {a.entry}  price {px}  ({pips(px)})  stop {stop}  "
               f"TPs hit {tp_hit}/3  {'CLOSED' if done else 'open'}")
     if new:
