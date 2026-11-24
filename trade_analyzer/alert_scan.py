@@ -20,13 +20,19 @@ from .forex import decimals, expand, parse
 
 
 def tv_prices(pairs):
-    try:
-        r = requests.post("https://scanner.tradingview.com/forex/scan", timeout=15,
-                          json={"symbols": {"tickers": [f"OANDA:{p}" for p in pairs]}, "columns": ["close"]},
-                          headers={"User-Agent": "Mozilla/5.0"})
-        return {d["s"].split(":")[1]: d["d"][0] for d in r.json().get("data", [])}
-    except Exception:
-        return {}
+    out = {}
+    for market, group in (("forex", [p for p in pairs if not p.startswith("XA")]),
+                          ("cfd", [p for p in pairs if p.startswith("XA")])):   # metals live on the CFD scanner
+        if not group:
+            continue
+        try:
+            r = requests.post(f"https://scanner.tradingview.com/{market}/scan", timeout=15,
+                              json={"symbols": {"tickers": [f"OANDA:{p}" for p in group]}, "columns": ["close"]},
+                              headers={"User-Agent": "Mozilla/5.0"})
+            out.update({d["s"].split(":")[1]: d["d"][0] for d in r.json().get("data", [])})
+        except Exception:
+            pass
+    return out
 
 
 def main(argv=None):
