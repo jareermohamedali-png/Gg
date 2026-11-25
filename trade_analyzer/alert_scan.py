@@ -4,8 +4,14 @@
 Exit code 0 = nothing new, 10 = new setup(s) found (one alert per line, then details).
 A setup is remembered by (pair, timeframe, side, strategy) and not re-alerted for --cooldown hours.
 Limit-order setups are only reported when the entry is within --max-dist ATR of the current price.
+
+--edge CSV [CSV ...] filters by history: a setup is only reported when past setups of the same pair and timeframe
+at or above --min-score (from backtest --csv output) averaged at least --edge-min R per trade at TP1, over at
+least --edge-n trades. Alerts then show that history; "PROVEN" means the average stays positive after
+subtracting 2 standard errors. Choosing pairs by their past results is itself a form of curve fitting.
 """
 import argparse
+import glob
 import json
 import os
 import sys
@@ -35,6 +41,25 @@ def tv_prices(pairs):
     return out
 
 
+def load_edge(a):
+    """{(pair, interval): history text} for pairs whose past A-grade setups were profitable at TP1."""
+    import numpy as np
+    import pandas as pd
+    files = [f for pat in a.edge for f in glob.glob(os.path.expanduser(pat))]
+    df = pd.concat([pd.read_csv(f) for f in files])
+    df = df[df["score"] >= a.min_score]
+    out = {}
+    for (sym, iv), g in df.groupby(["symbol", "interval"]):
+        r = g["TP1"]
+        n, m = len(r), r.mean()
+        if n < a.edge_n or m < a.edge_min:
+            continue
+        lo = m - 2 * r.std() / np.sqrt(n)
+        out[(sym, iv)] = (f" | history: {n} trades, {100 * (r > 0).mean():.0f}% hit TP1, avg {m:+.2f}R"
+                          + (" PROVEN" if lo > 0 else " (could be luck)"))
+    return out
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("symbols", nargs="+")
@@ -44,7 +69,11 @@ def main(argv=None):
     p.add_argument("--state", default=os.path.expanduser("~/.trade_monitor/scan.json"))
     p.add_argument("--cooldown", type=float, default=24)
     p.add_argument("--skip", nargs="*", default=[], help="PAIR:SIDE already being traded, e.g. EURCAD:SELL")
+    p.add_argument("--edge", nargs="*", help="backtest CSV(s) used to keep only pairs with a positive history")
+    p.add_argument("--edge-min", type=float, default=0.2, help="min average R at TP1 for --edge")
+    p.add_argument("--edge-n", type=int, default=15, help="min number of past trades for --edge")
     a = p.parse_args(argv)
+    edge = load_edge(a) if a.edge else None
     report.USE_COLOR = False
     os.makedirs(os.path.dirname(a.state), exist_ok=True)
     try:
@@ -72,6 +101,8 @@ def main(argv=None):
                     continue
                 if f"{ctx['symbol']}:{s.side}" in {x.upper() for x in a.skip}:
                     continue
+                if edge is not None and (ctx["symbol"], iv) not in edge:
+                    continue
                 key = f"{ctx['symbol']}|{iv}|{s.side}|{s.strategy}"
                 if key in seen:
                     continue
@@ -91,7 +122,8 @@ def main(argv=None):
         f = setups.fmt
         risk = f"{s.risk / fx['pip']:.0f} pips" if fx else f"{s.risk_pct:.2f}%"
         lines.append(f"{s.grade}-grade {s.side} {ctx['symbol']} ({ctx['interval']}, {s.score}): {s.entry_type} {f(s.entry)}, "
-                     f"SL {f(s.stop)} ({risk}), TP1 {f(s.targets[0].price)}")
+                     f"SL {f(s.stop)} ({risk}), TP1 {f(s.targets[0].price)}"
+                     + (edge[(ctx["symbol"], ctx["interval"])] if edge else ""))
         details.append(f"{ctx['symbol']} {ctx['interval']} live TradingView price: {live.get(ctx['symbol'], 'n/a')}"
                        + report.setup_block(s, 1, fx=fx))
         seen[key] = now
