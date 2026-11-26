@@ -52,7 +52,7 @@ def load_edge(a):
     for (sym, iv), g in df.groupby(["symbol", "interval"]):
         r = g["TP1"]
         n, m = len(r), r.mean()
-        if n < a.edge_n or m < a.edge_min:
+        if not a.edge_info_only and (n < a.edge_n or m < a.edge_min):
             continue
         lo = m - 2 * r.std() / np.sqrt(n)
         out[(sym, iv)] = (f" | history: {n} trades, {100 * (r > 0).mean():.0f}% hit TP1, avg {m:+.2f}R"
@@ -72,6 +72,7 @@ def main(argv=None):
     p.add_argument("--edge", nargs="*", help="backtest CSV(s) used to keep only pairs with a positive history")
     p.add_argument("--edge-min", type=float, default=0.2, help="min average R at TP1 for --edge")
     p.add_argument("--edge-n", type=int, default=15, help="min number of past trades for --edge")
+    p.add_argument("--edge-info-only", action="store_true", help="show the --edge history on alerts but don't filter by it")
     a = p.parse_args(argv)
     edge = load_edge(a) if a.edge else None
     report.USE_COLOR = False
@@ -101,7 +102,7 @@ def main(argv=None):
                     continue
                 if f"{ctx['symbol']}:{s.side}" in {x.upper() for x in a.skip}:
                     continue
-                if edge is not None and (ctx["symbol"], iv) not in edge:
+                if edge is not None and not a.edge_info_only and (ctx["symbol"], iv) not in edge:
                     continue
                 key = f"{ctx['symbol']}|{iv}|{s.side}|{s.strategy}"
                 if key in seen:
@@ -123,7 +124,7 @@ def main(argv=None):
         risk = f"{s.risk / fx['pip']:.0f} pips" if fx else f"{s.risk_pct:.2f}%"
         lines.append(f"{s.grade}-grade {s.side} {ctx['symbol']} ({ctx['interval']}, {s.score}): {s.entry_type} {f(s.entry)}, "
                      f"SL {f(s.stop)} ({risk}), TP1 {f(s.targets[0].price)}"
-                     + (edge[(ctx["symbol"], ctx["interval"])] if edge else ""))
+                     + (edge.get((ctx["symbol"], ctx["interval"]), " | history: none") if edge else ""))
         details.append(f"{ctx['symbol']} {ctx['interval']} live TradingView price: {live.get(ctx['symbol'], 'n/a')}"
                        + report.setup_block(s, 1, fx=fx))
         seen[key] = now
