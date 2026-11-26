@@ -122,7 +122,14 @@ def main(argv=None):
         setups.PRICE_DP = decimals(fx) if fx else None
         f = setups.fmt
         risk = f"{s.risk / fx['pip']:.0f} pips" if fx else f"{s.risk_pct:.2f}%"
-        lines.append(f"{s.grade}-grade {s.side} {ctx['symbol']} ({ctx['interval']}, {s.score}): {s.entry_type} {f(s.entry)}, "
+        entry = f"{s.entry_type} {f(s.entry)}"
+        px = live.get(ctx["symbol"])
+        if s.entry_type == "market" and px:
+            d = 1 if s.side == "BUY" else -1
+            chase = s.entry + d * 0.3 * s.risk     # past this, the stop is too far / the move is already gone
+            entry = (f"market NOW {f(px)} (live {time.strftime('%H:%M', time.gmtime())} UTC), "
+                     f"don't {'buy above' if d == 1 else 'sell below'} {f(chase)}")
+        lines.append(f"{s.grade}-grade {s.side} {ctx['symbol']} ({ctx['interval']}, {s.score}): {entry}, "
                      f"SL {f(s.stop)} ({risk}), TP1 {f(s.targets[0].price)}"
                      + (edge.get((ctx["symbol"], ctx["interval"]), " | history: none") if edge else ""))
         details.append(f"{ctx['symbol']} {ctx['interval']} live TradingView price: {live.get(ctx['symbol'], 'n/a')}"
